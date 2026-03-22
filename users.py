@@ -7,7 +7,7 @@ from telegram.ext import Application, CommandHandler, CallbackContext
 from motor.motor_asyncio import AsyncIOMotorClient
 
 # --- Configuration ---
-TELEGRAM_BOT_TOKEN = '8058370192:AAErXXSNYFnjjQrNNTKVV37dpuHX1r35a3U'  # REPLACE WITH YOUR TOKEN
+TELEGRAM_BOT_TOKEN = '8647083732:AAHnRuZw6y7EM4iJrFFqfSxkRhWJosvlcUA'  # REPLACE WITH YOUR TOKEN
 ADMIN_USER_ID = 1240179115
 MONGO_URI = "mongodb+srv://Kamisama:Kamisama@kamisama.m6kon.mongodb.net/"
 DB_NAME = "legxninja"
